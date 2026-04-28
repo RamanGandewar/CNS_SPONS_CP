@@ -464,7 +464,6 @@ The `test/` directory includes sample real and deepfake videos:
 
 ## Useful Links
 
-- GitHub Repository: [github.com/SamikshaSolanke/Deepfake-video-detection](https://github.com/SamikshaSolanke/Deepfake-video-detection)
 - Kaggle Dataset: [kaggle.com/datasets/reubensuju/celeb-df-v2](https://www.kaggle.com/datasets/reubensuju/celeb-df-v2)
 - Dataset Used: [Google Drive Folder](https://drive.google.com/drive/folders/1ZwyawT2beV9pVDZlNePAq4pcagByWPmj?usp=sharing)
 - Preprocessed Frames: [Google Drive Folder](https://drive.google.com/drive/folders/1bZBl5CgnfKwoial2eoUHwYlrxdwPyPHZ?usp=sharing)

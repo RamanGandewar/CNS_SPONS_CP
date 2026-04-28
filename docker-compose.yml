@@ -1,0 +1,11 @@
+services:
+  deepfake-detector:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./model:/app/model:ro
+      - ./data:/app/data
+      - ./static/analysis:/app/static/analysis
+    environment:
+      FLASK_ENV: production

@@ -1,0 +1,17 @@
+{
+  "name": "deepfake_detector_final",
+  "version": "1.0.0",
+  "artifact": "deepfake_detector_model_final.tflite",
+  "framework": "TensorFlow Lite",
+  "trained_on": "Celeb-DF-v2",
+  "input_shape": [1, 224, 224, 3],
+  "accuracy": 0.91,
+  "f1_score": 0.89,
+  "created_at": "2025-04-01",
+  "thresholds": {
+    "likely_real": [0.0, 0.3],
+    "uncertain": [0.3, 0.6],
+    "likely_deepfake": [0.6, 0.85],
+    "almost_certainly_deepfake": [0.85, 1.0]
+  }
+}

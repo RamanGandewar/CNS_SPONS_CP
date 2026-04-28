@@ -15,15 +15,29 @@
 [![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/features/actions)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
+<<<<<<< HEAD
 <br/>
+=======
+## Architecture
+
+![System Architecture](./images/SYS_ARCH.png)
+
+## Tech Stack
+>>>>>>> 9380e42 (Updated README and added images)
 
 > **FrameTruth** samples frames from any uploaded or URL-sourced video, runs per-frame TFLite inference,
 > and returns a rich forensic dashboard — timeline charts, suspicious timestamps, temporal consistency scores,
 > performance metrics, and a human-readable verdict. All behind secure, session-gated authentication.
 
+<<<<<<< HEAD
 <br/>
 
 [🚀 Quick Start](#-quick-start) • [📐 Architecture](#-architecture) • [🔌 API Reference](#-api-reference) • [🐳 Docker](#-docker-deployment) • [📊 Dashboard](#-dashboard--analytics) • [🛡️ Security](#%EF%B8%8F-security) • [🗺️ Roadmap](#%EF%B8%8F-roadmap)
+=======
+## User Flow
+
+![User Flow](./images/USERFLOW.png)
+>>>>>>> 9380e42 (Updated README and added images)
 
 ---
 
@@ -456,11 +470,69 @@ Sample test videos are included in `test/`:
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request:
 
+<<<<<<< HEAD
 ```
 ✔ pip install -r requirements.txt
 ✔ ruff check .
 ✔ pytest -q
 ✔ docker build validation
+=======
+- `model/deepfake_detector_model_final.tflite`
+- `model/deepfake_detector_model4.tflite`
+
+When a compatible Keras model is added, the backend can be extended to generate overlays for the most suspicious frames.
+
+## Project Structure
+
+```text
+Deepfake-video-detection-main/
+|-- app.py
+|-- Dockerfile
+|-- docker-compose.yml
+|-- requirements.txt
+|-- runtime.txt
+|-- run.ps1
+|-- run.bat
+|-- README.md
+|-- CHANGELOG.md
+|-- .env.example
+|-- images/
+|   |-- SYS_ARCH.png
+|   `-- USERFLOW.png
+|-- .github/
+|   `-- workflows/
+|       `-- ci.yml
+|-- data/
+|   `-- deepfake_detector.sqlite3        # generated locally
+|-- model/
+|   |-- deepfake_detector_model_final.tflite
+|   |-- deepfake_detector_model4.tflite
+|   `-- metadata.json
+|-- services/
+|   |-- __init__.py
+|   `-- validator.py
+|-- static/
+|   |-- analysis/                        # generated frame previews
+|   |-- css/
+|   |   `-- styles.css
+|   |-- img/
+|   |   `-- logo.jpeg
+|   |-- js/
+|   |   `-- script.js                    # React app
+|   `-- uploads/                         # temporary uploads
+|-- templates/
+|   `-- index.html                       # React mount point
+|-- test/
+|   |-- deepfake1.mp4
+|   |-- deepfake2.mp4
+|   |-- real1.mp4
+|   |-- real2.mp4
+|   `-- real3.mp4
+|-- tests/
+|   `-- test_api_contract.py
+`-- utils/
+    `-- video_processing.py
+>>>>>>> 9380e42 (Updated README and added images)
 ```
 
 ---

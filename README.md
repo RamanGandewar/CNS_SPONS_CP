@@ -15,35 +15,17 @@
 [![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/features/actions)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
-<<<<<<< HEAD
-<br/>
-=======
-## Architecture
-
-![System Architecture](./images/SYS_ARCH.png)
-
-## Tech Stack
->>>>>>> 9380e42 (Updated README and added images)
-
 > **FrameTruth** samples frames from any uploaded or URL-sourced video, runs per-frame TFLite inference,
 > and returns a rich forensic dashboard — timeline charts, suspicious timestamps, temporal consistency scores,
 > performance metrics, and a human-readable verdict. All behind secure, session-gated authentication.
 
-<<<<<<< HEAD
-<br/>
-
 [🚀 Quick Start](#-quick-start) • [📐 Architecture](#-architecture) • [🔌 API Reference](#-api-reference) • [🐳 Docker](#-docker-deployment) • [📊 Dashboard](#-dashboard--analytics) • [🛡️ Security](#%EF%B8%8F-security) • [🗺️ Roadmap](#%EF%B8%8F-roadmap)
-=======
-## User Flow
-
-![User Flow](./images/USERFLOW.png)
->>>>>>> 9380e42 (Updated README and added images)
-
----
 
 </div>
 
-## ✨ What Makes This Different
+---
+
+## ✨ Key Features
 
 | Feature | Description |
 |---|---|
@@ -60,45 +42,9 @@
 
 ---
 
-## 🖥️ Dashboard & Analytics
-
-The React dashboard (served at `/`) gives analysts a complete picture at a glance:
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  🎭 FrameTruth          [Login]  [Upload]  [Analytics]  │
-├─────────────────────────────────────────────────────────┤
-│                                                         │
-│  VERDICT: ⚠️  Likely Deepfake   (72.73%)               │
-│                                                         │
-│  Frame Timeline ─────────────────────────────────────── │
-│  1.0 │         ████  ██                                 │
-│  0.7 │ ──────threshold──────────────────────────────── │
-│  0.0 └──────────────────────────────────────────────── │
-│       Frame 1        Frame 10        Frame 20           │
-│                                                         │
-│  Suspicious Frames: [#4] [#7] [#12]                     │
-│  Temporal Consistency: ⚠️  High Variance (σ = 0.31)    │
-│                                                         │
-│  Processing Time: 1.42s  │  Frames Analysed: 20        │
-│  Model: deepfake_detector_model_final.tflite  v1.0.0   │
-│                                                         │
-│  📊 Admin Analytics   🔬 Grad-CAM Status               │
-└─────────────────────────────────────────────────────────┘
-```
-
-**Verdict Scale:**
-
-| Score | Label | Tone |
-|---|---|---|
-| `0 – 30%` | ✅ Likely Real | Safe |
-| `30 – 60%` | 🟡 Uncertain | Caution |
-| `60 – 85%` | ⚠️ Likely Deepfake | Warning |
-| `85 – 100%` | 🚨 Almost Certainly Deepfake | Critical |
-
----
-
 ## 📐 Architecture
+
+![System Architecture](C:/Users/HP/Desktop/SEM%206/CNS/CP-SPONSRED/Deepfake-video-detection-main/images/SYS_ARCH.png)
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -138,7 +84,11 @@ The React dashboard (served at `/`) gives analysts a complete picture at a glanc
    (TFLite graphs)               (frame previews)
 ```
 
-### Application Flow
+---
+
+## 🔁 User Flow
+
+![User Flow](C:/Users/HP/Desktop/SEM%206/CNS/CP-SPONSRED/Deepfake-video-detection-main/images/USERFLOW.png)
 
 ```
 1. User signs up / logs in          → Flask stores hashed password in SQLite
@@ -150,6 +100,21 @@ The React dashboard (served at `/`) gives analysts a complete picture at a glanc
 7. SQLite records result            → Feeds /metrics and /api/v1/admin/analytics
 8. Temp upload deleted              → No video retained after inference
 ```
+
+---
+
+## 📊 Dashboard & Analytics
+
+The React dashboard (served at `/`) gives analysts a complete picture at a glance — live frame timeline, verdict badge, suspicious frame markers, temporal consistency score, processing metrics, and admin analytics tab.
+
+**Verdict Scale:**
+
+| Score | Label | Tone |
+|---|---|---|
+| `0 – 30%` | ✅ Likely Real | Safe |
+| `30 – 60%` | 🟡 Uncertain | Caution |
+| `60 – 85%` | ⚠️ Likely Deepfake | Warning |
+| `85 – 100%` | 🚨 Almost Certainly Deepfake | Critical |
 
 ---
 
@@ -470,69 +435,11 @@ Sample test videos are included in `test/`:
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request:
 
-<<<<<<< HEAD
 ```
 ✔ pip install -r requirements.txt
 ✔ ruff check .
 ✔ pytest -q
 ✔ docker build validation
-=======
-- `model/deepfake_detector_model_final.tflite`
-- `model/deepfake_detector_model4.tflite`
-
-When a compatible Keras model is added, the backend can be extended to generate overlays for the most suspicious frames.
-
-## Project Structure
-
-```text
-Deepfake-video-detection-main/
-|-- app.py
-|-- Dockerfile
-|-- docker-compose.yml
-|-- requirements.txt
-|-- runtime.txt
-|-- run.ps1
-|-- run.bat
-|-- README.md
-|-- CHANGELOG.md
-|-- .env.example
-|-- images/
-|   |-- SYS_ARCH.png
-|   `-- USERFLOW.png
-|-- .github/
-|   `-- workflows/
-|       `-- ci.yml
-|-- data/
-|   `-- deepfake_detector.sqlite3        # generated locally
-|-- model/
-|   |-- deepfake_detector_model_final.tflite
-|   |-- deepfake_detector_model4.tflite
-|   `-- metadata.json
-|-- services/
-|   |-- __init__.py
-|   `-- validator.py
-|-- static/
-|   |-- analysis/                        # generated frame previews
-|   |-- css/
-|   |   `-- styles.css
-|   |-- img/
-|   |   `-- logo.jpeg
-|   |-- js/
-|   |   `-- script.js                    # React app
-|   `-- uploads/                         # temporary uploads
-|-- templates/
-|   `-- index.html                       # React mount point
-|-- test/
-|   |-- deepfake1.mp4
-|   |-- deepfake2.mp4
-|   |-- real1.mp4
-|   |-- real2.mp4
-|   `-- real3.mp4
-|-- tests/
-|   `-- test_api_contract.py
-`-- utils/
-    `-- video_processing.py
->>>>>>> 9380e42 (Updated README and added images)
 ```
 
 ---
@@ -554,6 +461,10 @@ deepfake-video-detection/
 │
 ├── data/
 │   └── deepfake_detector.sqlite3  # Generated at runtime (gitignored)
+│
+├── images/
+│   ├── SYS_ARCH.png
+│   └── USERFLOW.png
 │
 ├── model/
 │   ├── deepfake_detector_model_final.tflite   # Primary model
@@ -651,8 +562,18 @@ ruff>=0.8,<1
 
 ---
 
+## 👨‍💻 Developers
+
+This project was built and maintained by:
+
+| Name | GitHub |
+|---|---|
+| **Raman Gandewar** | [@ramangandewar](https://github.com/ramangandewar) |
+| **Prathamesh Ghalsasi** | [@prathameshghalsasi](https://github.com/prathameshghalsasi) |
+| **Divij Gujarathi** | [@divijgujrathi](https://github.com/divijgujrathi) |
+
+---
+
 ## 📜 License
 
 This project is licensed under the **MIT License** — see [LICENSE](LICENSE) for details.
-
----

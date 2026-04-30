@@ -524,6 +524,13 @@ h2 {
     background: rgba(0, 0, 0, 0.22);
 }
 
+.report-link {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 12px;
+    text-decoration: none;
+}
+
 .history-scroll {
     overflow-x: auto;
 }

@@ -1,579 +1,268 @@
-<div align="center">
+# FrameTruth AI
 
-<img src="static/img/logo.jpeg" alt="FrameTruth Logo" width="120" height="120" style="border-radius: 16px;" />
+FrameTruth AI is a Flask and React deepfake forensics platform for video analysis. It combines frame-level TFLite inference with an ensemble scoring layer, forensic secondary signals, operator analytics, JWT auth, audit logging, and exportable PDF reporting.
 
-# 🎭 FrameTruth — Deepfake Video Detection
+## Highlights
 
-**Forensic-grade AI video analysis. Built for truth.**
+- JWT-based auth with role-aware access for `analyst`, `operator`, and `admin`
+- Structured JSON logging with `request_id`, `job_id`, `user_id`, `duration_ms`, and `verdict`
+- Async analysis jobs with `job_id`, polling, and result retrieval
+- Prometheus-compatible `/metrics`
+- Operator analytics dashboard plus Grafana provisioning assets
+- Improved `/health` with DB, Redis, and Celery status
+- Ensemble inference across both bundled TFLite models
+- Frequency-domain analysis, optical-flow consistency, facial landmark displacement fallback, and audio-visual sync proxy
+- Exportable forensic PDF report per completed analysis
+- Notebook code exported into `notebooks_converted/`
 
-[![Python](https://img.shields.io/badge/Python-3.13-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![Flask](https://img.shields.io/badge/Flask-3.1.1-000000?style=for-the-badge&logo=flask&logoColor=white)](https://flask.palletsprojects.com)
-[![TensorFlow](https://img.shields.io/badge/TensorFlow-2.21.0-FF6F00?style=for-the-badge&logo=tensorflow&logoColor=white)](https://tensorflow.org)
-[![React](https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://docker.com)
-[![SQLite](https://img.shields.io/badge/SQLite-Backed-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://sqlite.org)
-[![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/features/actions)
-[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+## Implemented Upgrade Set
 
-> **FrameTruth** samples frames from any uploaded or URL-sourced video, runs per-frame TFLite inference,
-> and returns a rich forensic dashboard — timeline charts, suspicious timestamps, temporal consistency scores,
-> performance metrics, and a human-readable verdict. All behind secure, session-gated authentication.
+The current codebase now covers the full 12-item upgrade track we discussed:
 
-[🚀 Quick Start](#-quick-start) • [📐 Architecture](#-architecture) • [🔌 API Reference](#-api-reference) • [🐳 Docker](#-docker-deployment) • [📊 Dashboard](#-dashboard--analytics) • [🛡️ Security](#%EF%B8%8F-security) • [🗺️ Roadmap](#%EF%B8%8F-roadmap)
+1. Structured JSON logging
+2. Stronger health checks and metrics
+3. Grafana dashboard provisioning
+4. Audit logging plus role-based access control
+5. Exportable forensic PDF reporting
+6. Frequency analysis and optical-flow scoring
+7. Facial landmark displacement analysis
+8. Grad-CAM support for future Keras models
+9. Multi-model ensemble scoring plus calibration metadata
+10. Celery, Redis, and OpenTelemetry production hooks
+11. JWT-based authentication
+12. Audio-visual sync proxy analysis
 
-</div>
+## Architecture
 
----
+![System Architecture](./images/SYS_ARCH.png)
 
-## ✨ Key Features
+## User Flow
 
-| Feature | Description |
-|---|---|
-| 🧠 **TFLite Inference** | Fast, lightweight frame-level deepfake scoring with no GPU required |
-| 📈 **Timeline Analysis** | Chart.js frame-by-frame probability graph with red suspicious-frame markers |
-| ⏱️ **Temporal Consistency** | Variance + standard deviation analysis across frames — not just an average score |
-| 🔐 **Auth-Gated Access** | SQLite-backed signup/login with Werkzeug password hashing |
-| 🆔 **Async Job Queue** | Submit → get `job_id` → poll → retrieve. Non-blocking by design |
-| 📡 **Request Tracing** | Every API response carries a `request_id` and `X-Request-ID` header |
-| 📊 **Operator Analytics** | Built-in admin dashboard for verdict distribution, error rates, and history |
-| 🧪 **Prometheus Metrics** | `/metrics` endpoint ready for Grafana / alerting pipelines |
-| 🛡️ **Input Validation** | Magic-byte container check, duration limits, frame readability — before inference |
-| 🌐 **URL Video Support** | `yt-dlp` integration for public video URLs (≤ 3 min) |
+![User Flow](./images/USERFLOW.png)
 
----
+## Tech Stack
 
-## 📐 Architecture
+- Python 3.13
+- Flask 3.1
+- React 18
+- TensorFlow Lite
+- OpenCV
+- SQLite
+- JWT
+- Prometheus / Grafana
+- Docker Compose
 
-![System Architecture](C:/Users/HP/Desktop/SEM%206/CNS/CP-SPONSRED/Deepfake-video-detection-main/images/SYS_ARCH.png)
+## API
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                            BROWSER (React 18)                          │
-│  ┌─────────────┐  ┌──────────────┐  ┌──────────────┐  ┌────────────┐ │
-│  │  Auth Modal  │  │ Upload / URL │  │ Frame Chart  │  │  Admin Tab │ │
-│  └──────┬──────┘  └──────┬───────┘  └──────┬───────┘  └─────┬──────┘ │
-└─────────┼────────────────┼─────────────────┼────────────────┼─────────┘
-          │                │                 │                │
-          ▼                ▼                 ▼                ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         FLASK 3.1 (app.py)                              │
-│                                                                         │
-│  /api/auth/*   /api/v1/analyze   /api/v1/status   /api/v1/result       │
-│  /api/v1/admin/analytics         /metrics         /health              │
-│                                                                         │
-│  ┌──────────────┐   ┌─────────────────┐   ┌──────────────────────┐    │
-│  │  Auth Layer  │   │ Validator Layer  │   │  Async Job Manager   │    │
-│  │  (SQLite +   │   │ (services/       │   │  (job_id → thread)   │    │
-│  │  Werkzeug)   │   │  validator.py)   │   │                      │    │
-│  └──────────────┘   └────────┬────────┘   └──────────┬───────────┘    │
-│                              │                        │                 │
-│                    ┌─────────▼────────────────────────▼──────────┐     │
-│                    │          utils/video_processing.py           │     │
-│                    │   OpenCV frame sampling → TFLite inference   │     │
-│                    │   → score aggregation → consistency stats    │     │
-│                    └──────────────────────────────────────────────┘     │
-│                                                                         │
-│  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │            SQLite  (data/deepfake_detector.sqlite3)               │  │
-│  │  users · analyses · metrics · error_log                          │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────┘
-          │                             │
-          ▼                             ▼
-   model/*.tflite                static/analysis/
-   (TFLite graphs)               (frame previews)
-```
+`POST /api/auth/signup`
 
----
+Creates a user. The very first account created in a fresh database is assigned the `admin` role automatically.
 
-## 🔁 User Flow
+`POST /api/auth/login`
 
-![User Flow](C:/Users/HP/Desktop/SEM%206/CNS/CP-SPONSRED/Deepfake-video-detection-main/images/USERFLOW.png)
+Returns an `access_token` plus user profile.
 
-```
-1. User signs up / logs in          → Flask stores hashed password in SQLite
-2. User submits video / URL         → Validator checks size, magic bytes, duration, frames
-3. POST /api/v1/analyze             → Returns job_id immediately (non-blocking)
-4. React polls /api/v1/status/:id   → Until status == "complete"
-5. React fetches /api/v1/result/:id → Full analysis payload
-6. Dashboard renders                → Timeline, verdict, suspicious frames, metrics
-7. SQLite records result            → Feeds /metrics and /api/v1/admin/analytics
-8. Temp upload deleted              → No video retained after inference
+`GET /api/auth/me`
+
+Returns the current JWT-authenticated user.
+
+`POST /api/v1/analyze`
+
+Queues an async analysis job and returns:
+
+```json
+{
+  "request_id": "uuid",
+  "status": "success",
+  "data": {
+    "job_id": "uuid",
+    "status": "processing",
+    "poll_url": "/api/v1/status/<job_id>",
+    "result_url": "/api/v1/result/<job_id>"
+  }
+}
 ```
 
----
+`GET /api/v1/status/<job_id>`
 
-## 📊 Dashboard & Analytics
+Returns job progress and failure details if present.
 
-The React dashboard (served at `/`) gives analysts a complete picture at a glance — live frame timeline, verdict badge, suspicious frame markers, temporal consistency score, processing metrics, and admin analytics tab.
+`GET /api/v1/result/<job_id>`
 
-**Verdict Scale:**
+Returns the completed analysis payload including:
 
-| Score | Label | Tone |
-|---|---|---|
-| `0 – 30%` | ✅ Likely Real | Safe |
-| `30 – 60%` | 🟡 Uncertain | Caution |
-| `60 – 85%` | ⚠️ Likely Deepfake | Warning |
-| `85 – 100%` | 🚨 Almost Certainly Deepfake | Critical |
+- verdict and confidence
+- frame scores and suspicious markers
+- ensemble disagreement
+- frequency analysis
+- optical-flow consistency
+- landmark displacement fallback
+- audio-visual sync proxy
+- report URL
 
----
+`GET /api/v1/report/<analysis_id>`
 
-## 🚀 Quick Start
+Downloads the generated forensic PDF.
 
-### ⚡ Windows (Recommended)
+`GET /api/v1/admin/analytics`
 
-```bat
+Operator/admin analytics including totals, verdict distribution, latency percentiles, and recent history.
+
+`GET /api/v1/model/info`
+
+Returns the model registry and calibration metadata.
+
+`GET /health`
+
+Returns uptime, DB ping, Redis reachability, Celery mode, and loaded model count.
+
+`GET /metrics`
+
+Exposes Prometheus metrics such as:
+
+```text
+frametruth_analyses_total
+frametruth_errors_total
+frametruth_average_confidence
+frametruth_latency_p50_seconds
+frametruth_latency_p95_seconds
+frametruth_latency_p99_seconds
+frametruth_verdict_total{verdict="Likely Deepfake"}
+```
+
+## Reliability And Observability
+
+- Structured JSON logging is configured in [services/logging_utils.py](./services/logging_utils.py)
+- OpenTelemetry span hooks are available in [services/tracing.py](./services/tracing.py)
+- Grafana and Prometheus provisioning live under `monitoring/`
+- Audit records are stored in the SQLite `audit_log` table
+- Role-restricted admin endpoints are enforced by JWT claims
+
+## Forensic Signals
+
+The analysis pipeline now adds multiple signals beyond the base classifier:
+
+- Ensemble deepfake score from both TFLite models
+- Frequency-domain artifact score using FFT energy distribution
+- Optical-flow consistency using Farneback motion fields
+- Facial landmark displacement fallback using Haar face detection plus Shi-Tomasi feature tracking
+- Audio-visual sync proxy using extracted audio RMS versus lower-face motion
+- Grad-CAM support when a `.keras` or `.h5` model is added
+
+The Grad-CAM implementation is present in [services/explainability.py](./services/explainability.py), but it only activates when a Keras model is available in `model/`.
+
+## Notebook Conversion
+
+The runtime app does not depend on Jupyter notebooks. The original experiment notebooks are still in the repo for reference, and their code was also exported into Python scripts for easier review and reuse:
+
+- [CSI_0.py](./notebooks_converted/CSI_0.py)
+- [CSI_1.py](./notebooks_converted/CSI_1.py)
+- [CSI_3.py](./notebooks_converted/CSI_3.py)
+- [CSI_4.py](./notebooks_converted/CSI_4.py)
+
+## Project Structure
+
+```text
+Deepfake-video-detection-main/
+|-- app.py
+|-- CHANGELOG.md
+|-- Dockerfile
+|-- docker-compose.yml
+|-- README.md
+|-- requirements.txt
+|-- images/
+|   |-- SYS_ARCH.png
+|   `-- USERFLOW.png
+|-- model/
+|   |-- calibration.json
+|   |-- deepfake_detector_model4.tflite
+|   |-- deepfake_detector_model_final.tflite
+|   `-- metadata.json
+|-- monitoring/
+|   |-- prometheus.yml
+|   `-- grafana/
+|-- notebooks_converted/
+|   |-- CSI_0.py
+|   |-- CSI_1.py
+|   |-- CSI_3.py
+|   `-- CSI_4.py
+|-- services/
+|   |-- auth.py
+|   |-- explainability.py
+|   |-- forensics.py
+|   |-- logging_utils.py
+|   |-- pdf_report.py
+|   |-- tracing.py
+|   `-- validator.py
+|-- static/
+|   |-- analysis/
+|   |-- css/
+|   |-- img/
+|   |-- js/
+|   |-- reports/
+|   `-- uploads/
+|-- templates/
+|   `-- index.html
+|-- tests/
+|   `-- test_api_contract.py
+`-- utils/
+    `-- video_processing.py
+```
+
+## Setup
+
+Windows quick start:
+
+```powershell
 .\run.bat
 ```
 
-Or skip reinstallation if dependencies are already present:
+Manual setup:
 
 ```powershell
-.\run.ps1 -SkipInstall
-```
-
-### 🐍 Manual Setup (Any OS)
-
-```bash
-# 1. Clone and enter the project
-git clone https://github.com/your-username/deepfake-video-detection.git
-cd deepfake-video-detection
-
-# 2. Create and activate a virtual environment
 python -m venv .venv
-
-# Linux / macOS
-source .venv/bin/activate
-
-# Windows
 .\.venv\Scripts\activate
-
-# 3. Install dependencies
 pip install --upgrade pip
 pip install -r requirements.txt
-
-# 4. Copy and configure environment variables
-cp .env.example .env
-
-# 5. Start the server
 python app.py
 ```
 
-Open **http://127.0.0.1:5000** in your browser.
+Open `http://127.0.0.1:5000`.
 
----
+## Docker And Monitoring
 
-## 🐳 Docker Deployment
+Run the app plus Redis, Prometheus, and Grafana:
 
-```bash
-# Build and start with Docker Compose
+```powershell
 docker compose up --build
-
-# Run detached
-docker compose up -d --build
-
-# Tear down
-docker compose down
 ```
 
-The app will be available at **http://127.0.0.1:5000**
+Ports:
 
-> **Tip:** Set `SECRET_KEY` in your `.env` or as a Docker secret before any production deployment.
+- app: `5000`
+- Redis: `6379`
+- Prometheus: `9090`
+- Grafana: `3000`
 
----
+## Config
 
-## ⚙️ Configuration
+Copy [.env.example](./.env.example) to `.env` and adjust values such as:
 
-All settings are configurable via environment variables. Copy `.env.example` to `.env`:
+- `SECRET_KEY`
+- `CORS_ORIGINS`
+- `MAX_UPLOAD_MB`
+- `MAX_VIDEO_DURATION_SECONDS`
+- `RATE_LIMIT_DEFAULT`
+- `REDIS_URL`
+- `CELERY_BROKER_URL`
 
-```env
-# Security
-SECRET_KEY=change-me-before-production
+## Notes
 
-# CORS
-CORS_ORIGINS=http://127.0.0.1:5000,http://localhost:5000
+- Celery and Redis integration are implemented as optional production hooks. In the current environment the app falls back to thread-based async processing.
+- OpenTelemetry hooks are present, but full distributed export requires installing and configuring the OTel SDK/exporter stack.
+- The facial landmark path uses a practical OpenCV fallback because MediaPipe and dlib are not installed in this environment.
+- The audio-visual sync feature uses a proxy method, not SyncNet.
 
-# Upload limits
-MAX_UPLOAD_MB=100
-MAX_VIDEO_DURATION_SECONDS=180
-MAX_FRAMES=20
+## License
 
-# Rate limiting
-RATE_LIMIT_DEFAULT=100 per day
-RATE_LIMIT_STORAGE_URI=memory://
-
-# Logging
-LOG_LEVEL=INFO
-```
-
----
-
-## 🔌 API Reference
-
-All production API responses share a common envelope:
-
-```json
-{
-  "request_id": "a3f9c2d1-...",
-  "status": "success",
-  "data": { }
-}
-```
-
-The same `request_id` is also returned in the `X-Request-ID` response header for log correlation.
-
----
-
-### 🔐 Authentication
-
-#### `POST /api/auth/signup`
-
-```json
-{
-  "name": "Analyst",
-  "email": "analyst@example.com",
-  "password": "password123"
-}
-```
-
-#### `POST /api/auth/login`
-
-```json
-{
-  "email": "analyst@example.com",
-  "password": "password123"
-}
-```
-
-#### `POST /api/auth/logout`
-#### `GET /api/auth/me`
-
-> Protected analysis endpoints return `401` with `"error": "Sign in before running an analysis."` if unauthenticated.
-
----
-
-### 🎬 Video Analysis
-
-#### `POST /api/v1/analyze`
-
-Upload a file:
-
-```bash
-curl -X POST http://127.0.0.1:5000/api/v1/analyze \
-  -b cookies.txt \
-  -F "video=@test/deepfake1.mp4"
-```
-
-Or submit a public URL:
-
-```bash
-curl -X POST http://127.0.0.1:5000/api/v1/analyze \
-  -b cookies.txt \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://youtube.com/watch?v=example"}'
-```
-
-**Immediate response:**
-
-```json
-{
-  "request_id": "a3f9c2d1-...",
-  "status": "success",
-  "data": {
-    "job_id": "81c37ee5-...",
-    "status": "processing",
-    "progress": 10,
-    "poll_url": "/api/v1/status/81c37ee5-...",
-    "result_url": "/api/v1/result/81c37ee5-..."
-  }
-}
-```
-
-#### `GET /api/v1/status/<job_id>`
-
-```json
-{
-  "request_id": "a3f9c2d1-...",
-  "status": "success",
-  "data": {
-    "job_id": "81c37ee5-...",
-    "status": "complete",
-    "progress": 100
-  }
-}
-```
-
-#### `GET /api/v1/result/<job_id>`
-
-```json
-{
-  "request_id": "a3f9c2d1-...",
-  "status": "success",
-  "data": {
-    "job_id": "81c37ee5-...",
-    "analysis_id": "abc123",
-    "source_type": "upload",
-    "deepfake_score": 0.7272,
-    "deepfake_percentage": "72.73%",
-    "verdict": {
-      "label": "Likely Deepfake",
-      "tone": "fake"
-    },
-    "frame_scores": [0.12, 0.89, 0.74, "..."],
-    "suspicious_markers": [4, 7, 12],
-    "consistency": {
-      "variance": 0.096,
-      "std_dev": 0.310
-    },
-    "metrics": {
-      "processing_time_seconds": 1.42,
-      "frame_count": 20,
-      "model_name": "deepfake_detector_model_final.tflite",
-      "model_version": "1.0.0"
-    },
-    "artifacts": { }
-  }
-}
-```
-
----
-
-### 📊 Observability & Admin
-
-#### `GET /health`
-
-```json
-{
-  "status": "ok",
-  "model_loaded": true,
-  "uptime_seconds": 123.45,
-  "version": "1.0.0",
-  "model_version": "deepfake_detector_model_final.tflite"
-}
-```
-
-#### `GET /metrics` — Prometheus-compatible
-
-```
-frametruth_analyses_total 12
-frametruth_errors_total 1
-frametruth_average_confidence 0.72
-frametruth_average_processing_seconds 1.42
-```
-
-#### `GET /api/v1/admin/analytics` *(authenticated)*
-
-Returns verdict distribution, error rates, average confidence, processing time, and recent history.
-
-#### `GET /api/v1/model/info`
-
-Returns model registry metadata from `model/metadata.json`.
-
-#### `POST /api/analyze` *(legacy)*
-
-Synchronous compatibility route for older clients. Returns the same traced envelope.
-
----
-
-## 🛡️ Security
-
-Every response includes hardened security headers:
-
-| Header | Value |
-|---|---|
-| `X-Content-Type-Options` | `nosniff` |
-| `X-Frame-Options` | `DENY` |
-| `Referrer-Policy` | `strict-origin-when-cross-origin` |
-| `Permissions-Policy` | Restrictive |
-| `Content-Security-Policy` | Configured |
-
-Additional protections:
-- **Werkzeug password hashing** — no plaintext passwords stored
-- **Configurable CORS** — allowlist via `CORS_ORIGINS`
-- **Rate limiting** — Flask-Limiter with configurable backend
-- **Temp file cleanup** — uploaded videos deleted immediately after inference
-- **Input validation** — magic-byte container check, file size cap, duration limit, frame readability check
-
----
-
-## ✅ Input Validation
-
-The validation layer (`services/validator.py`) rejects videos **before inference** when:
-
-- File is empty or missing
-- File exceeds `MAX_UPLOAD_MB` (default: `100 MB`)
-- Container does not have a valid MP4/MOV `ftyp` magic byte signature
-- No readable frames are found by OpenCV
-- Duration is below `1 second`
-- Duration exceeds `MAX_VIDEO_DURATION_SECONDS` (default: `180 s`)
-
----
-
-## 🧪 Testing
-
-```bash
-# Run the test suite
-pytest -q
-
-# Lint with ruff
-ruff check .
-```
-
-Sample test videos are included in `test/`:
-
-| File | Type |
-|---|---|
-| `test/deepfake1.mp4` | Deepfake |
-| `test/deepfake2.mp4` | Deepfake |
-| `test/real1.mp4` | Authentic |
-| `test/real2.mp4` | Authentic |
-| `test/real3.mp4` | Authentic |
-
----
-
-## 🔁 CI/CD
-
-GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request:
-
-```
-✔ pip install -r requirements.txt
-✔ ruff check .
-✔ pytest -q
-✔ docker build validation
-```
-
----
-
-## 📁 Project Structure
-
-```
-deepfake-video-detection/
-├── app.py                          # Flask app, routes, auth, job manager
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-├── runtime.txt
-├── run.bat / run.ps1               # Windows convenience launchers
-├── .env.example
-│
-├── .github/
-│   └── workflows/ci.yml           # GitHub Actions CI
-│
-├── data/
-│   └── deepfake_detector.sqlite3  # Generated at runtime (gitignored)
-│
-├── images/
-│   ├── SYS_ARCH.png
-│   └── USERFLOW.png
-│
-├── model/
-│   ├── deepfake_detector_model_final.tflite   # Primary model
-│   ├── deepfake_detector_model4.tflite        # Alternate model
-│   └── metadata.json
-│
-├── services/
-│   ├── __init__.py
-│   └── validator.py               # Input validation layer
-│
-├── static/
-│   ├── analysis/                  # Generated frame previews (gitignored)
-│   ├── css/styles.css
-│   ├── img/logo.jpeg
-│   ├── js/script.js               # React app (Babel CDN)
-│   └── uploads/                   # Temporary uploads (gitignored)
-│
-├── templates/
-│   └── index.html                 # React mount point
-│
-├── test/                          # Sample videos for manual testing
-│
-├── tests/
-│   └── test_api_contract.py
-│
-└── utils/
-    └── video_processing.py        # OpenCV + TFLite frame pipeline
-```
-
----
-
-## 🔬 Grad-CAM Status
-
-The dashboard includes a **Grad-CAM panel** to surface which spatial regions triggered the model. However, true Grad-CAM heatmaps require intermediate convolutional layer access — which TFLite does not expose.
-
-**Current model files:**
-- `model/deepfake_detector_model_final.tflite` ✅ (in use)
-- `model/deepfake_detector_model4.tflite` ✅ (alternate)
-
-**To enable Grad-CAM:** Add a Keras `.h5` or `.keras` model. The backend is structured to accept an extension at `utils/video_processing.py`.
-
----
-
-## 🗺️ Roadmap
-
-- [ ] Grad-CAM heatmap overlays (requires Keras model)
-- [ ] Per-user persistent analysis history
-- [ ] Role-based admin permissions (analyst / operator / superadmin)
-- [ ] Vendor React locally (Vite build) for offline-capable frontend
-- [ ] Audit log for auth and operator actions
-- [ ] Exportable forensic PDF report per analysis
-- [ ] WebSocket-based real-time progress (replace polling)
-- [ ] Multi-model ensemble scoring
-
----
-
-## 📦 Dependencies
-
-```text
-flask==3.1.1
-numpy>=1.26,<2.2
-opencv-python>=4.10,<5
-tensorflow==2.21.0
-yt-dlp>=2025.1.15
-gunicorn>=23.0,<24
-flask-cors>=5.0,<6
-flask-limiter>=3.8,<4
-python-dotenv>=1.0,<2
-pytest>=8.0,<9
-ruff>=0.8,<1
-```
-
----
-
-## 🔗 Dataset & Resources
-
-| Resource | Link |
-|---|---|
-| Kaggle Dataset (Celeb-DF v2) | [kaggle.com/datasets/reubensuju/celeb-df-v2](https://www.kaggle.com/datasets/reubensuju/celeb-df-v2) |
-| Raw Dataset (Google Drive) | [Drive Folder](https://drive.google.com/drive/folders/1ZwyawT2beV9pVDZlNePAq4pcagByWPmj?usp=sharing) |
-| Preprocessed Frames | [Drive Folder](https://drive.google.com/drive/folders/1bZBl5CgnfKwoial2eoUHwYlrxdwPyPHZ?usp=sharing) |
-| Flask Docs | [flask.palletsprojects.com](https://flask.palletsprojects.com) |
-| TensorFlow Lite | [tensorflow.org/lite](https://www.tensorflow.org/lite) |
-
----
-
-## ⚠️ Operational Notes
-
-- Uploaded videos are **deleted immediately** after inference — nothing is retained.
-- Frame preview images are written to `static/analysis/` (gitignored).
-- User accounts live in `data/deepfake_detector.sqlite3` (gitignored).
-- React is served via CDN + Babel — an internet connection is needed for the browser UI unless React is vendored locally.
-- URL analysis uses `yt-dlp` and rejects videos longer than **3 minutes**.
-- The built-in Flask dev server (`python app.py`) is for **local development only**. Use `gunicorn` via Docker for production.
-
----
-
-## 👨‍💻 Developers
-
-This project was built and maintained by:
-
-| Name | GitHub |
-|---|---|
-| **Raman Gandewar** | [@ramangandewar](https://github.com/ramangandewar) |
-| **Prathamesh Ghalsasi** | [@prathameshghalsasi](https://github.com/prathameshghalsasi) |
-| **Divij Gujarathi** | [@divijgujrathi](https://github.com/divijgujrathi) |
-
----
-
-## 📜 License
-
-This project is licensed under the **MIT License** — see [LICENSE](LICENSE) for details.
+No license file is currently bundled in the repository.

@@ -1,5 +1,6 @@
 const h = React.createElement;
 const { useEffect, useMemo, useRef, useState } = React;
+const TOKEN_KEY = "frametruth_access_token";
 
 function percent(value) {
     return `${(Number(value) * 100).toFixed(2)}%`;
@@ -11,6 +12,11 @@ function seconds(value) {
 
 function Toast({ toast }) {
     return toast.message ? h("div", { className: `toast show ${toast.tone}` }, toast.message) : null;
+}
+
+function getAuthHeaders() {
+    const token = window.localStorage.getItem(TOKEN_KEY);
+    return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 function TopNav({ user, onAuthClick, onLogout }) {
@@ -59,6 +65,7 @@ function AuthModal({ mode, setMode, onClose, onAuthed, showToast }) {
             if (!response.ok || data.error) {
                 throw new Error(data.error || "Authentication failed.");
             }
+            window.localStorage.setItem(TOKEN_KEY, data.access_token);
             onAuthed(data.user);
             showToast(isSignup ? "Account created." : "Signed in.", "success");
             onClose();
@@ -114,7 +121,7 @@ function SourcePanel({ user, onResult, showToast, openAuth }) {
 
     async function pollForResult(jobId) {
         for (let attempt = 0; attempt < 90; attempt += 1) {
-            const statusResponse = await fetch(`/api/v1/status/${jobId}`);
+            const statusResponse = await fetch(`/api/v1/status/${jobId}`, { headers: getAuthHeaders() });
             const statusPayload = await statusResponse.json();
             if (!statusResponse.ok || statusPayload.status === "error") {
                 throw new Error(statusPayload.error || "Could not read job status.");
@@ -123,7 +130,7 @@ function SourcePanel({ user, onResult, showToast, openAuth }) {
                 throw new Error(statusPayload.data.error || "Analysis failed.");
             }
             if (statusPayload.data.status === "complete") {
-                const resultResponse = await fetch(`/api/v1/result/${jobId}`);
+                const resultResponse = await fetch(`/api/v1/result/${jobId}`, { headers: getAuthHeaders() });
                 const resultPayload = await resultResponse.json();
                 if (!resultResponse.ok || resultPayload.status === "error") {
                     throw new Error(resultPayload.error || "Could not read job result.");
@@ -156,7 +163,7 @@ function SourcePanel({ user, onResult, showToast, openAuth }) {
 
         setLoading(true);
         try {
-            const response = await fetch("/api/v1/analyze", { method: "POST", body: formData });
+            const response = await fetch("/api/v1/analyze", { method: "POST", body: formData, headers: getAuthHeaders() });
             const payload = await response.json();
             if (!response.ok || payload.status === "error") {
                 throw new Error(payload.error || "Analysis failed.");
@@ -344,7 +351,10 @@ function AdminDashboard({ user, result }) {
             setAnalytics(null);
             return;
         }
-        Promise.all([fetch("/api/v1/admin/analytics"), fetch("/api/v1/model/info")])
+        Promise.all([
+            fetch("/api/v1/admin/analytics", { headers: getAuthHeaders() }),
+            fetch("/api/v1/model/info", { headers: getAuthHeaders() }),
+        ])
             .then(async ([analyticsResponse, modelResponse]) => {
                 const analyticsPayload = await analyticsResponse.json();
                 const modelPayload = await modelResponse.json();
@@ -406,8 +416,8 @@ function AdminDashboard({ user, result }) {
         ["Avg confidence", percent(analytics.average_confidence)],
         ["Avg processing", `${Number(analytics.average_processing_time_seconds).toFixed(2)}s`],
         ["Uptime", `${Number(analytics.health.uptime_seconds).toFixed(0)}s`],
-        ["Model loaded", analytics.health.model_loaded ? "Yes" : "No"],
-        ["Model version", modelInfo?.version || analytics.health.model_version],
+        ["Model loaded", analytics.health.models_loaded > 0 ? "Yes" : "No"],
+        ["Model version", modelInfo?.models?.[0]?.version || "n/a"],
     ] : [];
 
     return h("section", { className: "panel admin-panel", id: "admin-panel" },
@@ -435,7 +445,8 @@ function AdminDashboard({ user, result }) {
                         h("td", null, item.processing_time_seconds ? `${Number(item.processing_time_seconds).toFixed(2)}s` : "--")
                     )))
                 )
-            )
+            ),
+            result?.report_url ? h("a", { className: "ghost-button report-link", href: result.report_url }, "Open forensic PDF") : null
         )
     );
 }
@@ -466,14 +477,15 @@ function App() {
     }
 
     useEffect(() => {
-        fetch("/api/auth/me")
-            .then(response => response.json())
+        fetch("/api/auth/me", { headers: getAuthHeaders() })
+            .then(response => response.ok ? response.json() : { user: null })
             .then(data => setUser(data.user || null))
             .catch(() => setUser(null));
     }, []);
 
     async function logout() {
-        await fetch("/api/auth/logout", { method: "POST" });
+        await fetch("/api/auth/logout", { method: "POST", headers: getAuthHeaders() });
+        window.localStorage.removeItem(TOKEN_KEY);
         setUser(null);
         setResult(null);
         showToast("Signed out.", "success");

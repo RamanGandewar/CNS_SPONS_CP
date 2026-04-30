@@ -2,6 +2,7 @@
 __pycache__/
 static/uploads/
 static/analysis/
+static/reports/
 data/
 .env
 .ruff_cache/

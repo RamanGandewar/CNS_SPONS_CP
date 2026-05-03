@@ -6,6 +6,56 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
 
+def _artifact_path(image_url):
+    return (Path.cwd() / image_url.lstrip("/")).resolve()
+
+
+def _add_sampled_frame_pages(pdf, result):
+    sampled_frames = result.get("artifacts", {}).get("sampled_frames", [])
+    if not sampled_frames:
+        sampled_frames = result.get("artifacts", {}).get("top_suspicious_frames", [])
+
+    if not sampled_frames:
+        return
+
+    frames_per_page = 10
+    for page_start in range(0, len(sampled_frames), frames_per_page):
+        page_frames = sampled_frames[page_start:page_start + frames_per_page]
+        page_number = page_start // frames_per_page + 1
+        page_count = (len(sampled_frames) + frames_per_page - 1) // frames_per_page
+        gallery = plt.figure(figsize=(11, 8.5))
+        gallery.suptitle(
+            f"Final Frame Review ({page_number}/{page_count}) - {result['verdict']['label']}",
+            fontsize=16,
+        )
+
+        for index, frame in enumerate(page_frames, start=1):
+            axis = gallery.add_subplot(2, 5, index)
+            image_path = _artifact_path(frame["image_url"])
+            if image_path.exists():
+                axis.imshow(plt.imread(image_path))
+            axis.set_title(
+                f"Frame {frame['frame_number']}\n"
+                f"{frame['score'] * 100:.2f}% fake",
+                fontsize=9,
+            )
+            axis.set_xlabel(f"{float(frame['timestamp_seconds']):.2f}s", fontsize=8)
+            axis.set_xticks([])
+            axis.set_yticks([])
+
+        gallery.text(
+            0.05,
+            0.03,
+            f"Overall verdict: {result['verdict']['label']} | "
+            f"Overall fake probability: {result['deepfake_percentage']} | "
+            f"Frames reviewed: {len(sampled_frames)}",
+            fontsize=10,
+        )
+        gallery.tight_layout(rect=[0.02, 0.07, 0.98, 0.92])
+        pdf.savefig(gallery)
+        plt.close(gallery)
+
+
 def build_forensic_report(result, output_path):
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -48,11 +98,13 @@ def build_forensic_report(result, output_path):
             gallery = plt.figure(figsize=(11, 8.5))
             for index, frame in enumerate(suspicious_frames[:3], start=1):
                 axis = gallery.add_subplot(1, 3, index)
-                image = plt.imread((Path.cwd() / frame["image_url"].lstrip("/")).resolve())
+                image = plt.imread(_artifact_path(frame["image_url"]))
                 axis.imshow(image)
                 axis.set_title(f"Frame {frame['frame_number']}\n{frame['score'] * 100:.2f}%")
                 axis.axis("off")
             pdf.savefig(gallery)
             plt.close(gallery)
+
+        _add_sampled_frame_pages(pdf, result)
 
     return output_path

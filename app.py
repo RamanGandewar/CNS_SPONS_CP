@@ -1,4 +1,5 @@
 import json
+import mimetypes
 import os
 import shutil
 import socket
@@ -8,11 +9,14 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from urllib.error import URLError
 from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 import jwt
 import numpy as np
 import tensorflow as tf
+import cv2
 from flask import Flask, Response, g, has_request_context, jsonify, render_template, request, send_file
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -72,6 +76,7 @@ NOTEBOOK_EXPORTS = BASE_DIR / "notebooks_converted"
 MODEL_METADATA_PATH = MODEL_FOLDER / "metadata.json"
 CALIBRATION_PATH = MODEL_FOLDER / "calibration.json"
 ALLOWED_EXTENSIONS = {"mp4", "mov"}
+ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 MAX_URL_DURATION_SECONDS = int(os.environ.get("MAX_VIDEO_DURATION_SECONDS", "180"))
 MAX_FRAMES = int(os.environ.get("MAX_FRAMES", "20"))
 SUSPICIOUS_THRESHOLD = 0.7
@@ -82,6 +87,20 @@ CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", REDIS_URL)
 MODEL_FILES = [
     MODEL_FOLDER / "deepfake_detector_model_final.tflite",
     MODEL_FOLDER / "deepfake_detector_model4.tflite",
+]
+SEEDED_ADMIN_ACCOUNTS = [
+    {
+        "name": "FrameTruth Admin",
+        "email": os.environ.get("SEEDED_ADMIN_1_EMAIL", "admin@frametruth.local").strip().lower(),
+        "password": os.environ.get("SEEDED_ADMIN_1_PASSWORD", "FrameTruthAdmin@2026"),
+        "role": "admin",
+    },
+    {
+        "name": "FrameTruth Ops",
+        "email": os.environ.get("SEEDED_ADMIN_2_EMAIL", "ops@frametruth.local").strip().lower(),
+        "password": os.environ.get("SEEDED_ADMIN_2_PASSWORD", "FrameTruthOps@2026"),
+        "role": "admin",
+    },
 ]
 
 for folder in (UPLOAD_FOLDER, ARTIFACT_FOLDER, REPORT_FOLDER, DATA_FOLDER, NOTEBOOK_EXPORTS):
@@ -214,6 +233,7 @@ def init_db():
             """
         )
         migrate_schema(connection)
+        seed_admin_accounts(connection)
 
 
 def ensure_column(connection, table_name, column_name, definition):
@@ -225,6 +245,25 @@ def ensure_column(connection, table_name, column_name, definition):
 def migrate_schema(connection):
     ensure_column(connection, "users", "role", "TEXT NOT NULL DEFAULT 'analyst'")
     ensure_column(connection, "analyses", "report_path", "TEXT")
+
+
+def seed_admin_accounts(connection):
+    seen_emails = set()
+    for account in SEEDED_ADMIN_ACCOUNTS:
+        if not account["email"] or not account["password"]:
+            continue
+        if account["email"] in seen_emails:
+            continue
+        seen_emails.add(account["email"])
+        password_hash = generate_password_hash(account["password"])
+        connection.execute(
+            "INSERT OR IGNORE INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)",
+            (account["name"], account["email"], password_hash, account["role"]),
+        )
+        connection.execute(
+            "UPDATE users SET name = ?, password_hash = ?, role = ? WHERE email = ?",
+            (account["name"], password_hash, account["role"], account["email"]),
+        )
 
 
 def json_response(status, request_id, data=None, error=None, status_code=200):
@@ -239,10 +278,13 @@ def json_response(status, request_id, data=None, error=None, status_code=200):
 @app.before_request
 def assign_request_id():
     g.request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+    g.request_started_at = time.perf_counter()
 
 
 @app.after_request
 def add_headers(response):
+    started_at = getattr(g, "request_started_at", None)
+    duration_ms = round((time.perf_counter() - started_at) * 1000, 2) if started_at is not None else None
     response.headers["X-Request-ID"] = getattr(g, "request_id", "")
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
@@ -257,6 +299,25 @@ def add_headers(response):
         "connect-src 'self' https://unpkg.com https://cdn.jsdelivr.net; "
         "frame-ancestors 'none'"
     )
+    should_log = not (
+        request.path.startswith("/static/")
+        and any(request.path.endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".css", ".js", ".ico", ".map"))
+    )
+    if should_log:
+        log_event(
+            LOGGER,
+            20,
+            f"{request.method} {request.path} -> {response.status_code}",
+            event="http_request",
+            request_id=getattr(g, "request_id", None),
+            method=request.method,
+            path=request.path,
+            status_code=response.status_code,
+            duration_ms=duration_ms,
+            ip=request.headers.get("X-Forwarded-For", request.remote_addr),
+            query_string=request.query_string.decode("utf-8", errors="ignore") if request.query_string else None,
+            content_length=request.content_length,
+        )
     return response
 
 
@@ -423,6 +484,24 @@ def create_frame_artifacts(analysis_id, frame_items, scores):
     return artifacts
 
 
+def create_sampled_frame_artifacts(analysis_id, frame_items, scores):
+    artifacts = []
+    for index, (item, score) in enumerate(zip(frame_items, scores), start=1):
+        filename = f"{analysis_id}_sampled_{index:02d}.jpg"
+        output_path = ARTIFACT_FOLDER / filename
+        save_frame_image(item["frame"], output_path)
+        artifacts.append({
+            "rank": index,
+            "frame_number": item["frame_number"],
+            "timestamp_seconds": item["timestamp_seconds"],
+            "score": score,
+            "percentage": round(score * 100, 2),
+            "suspicious": score >= SUSPICIOUS_THRESHOLD,
+            "image_url": f"/static/analysis/{filename}",
+        })
+    return artifacts
+
+
 def maybe_generate_gradcam(result, frame_items):
     status = gradcam_status(MODEL_FOLDER)
     if not status["available"]:
@@ -447,6 +526,99 @@ def create_pdf_report(result):
     report_path = REPORT_FOLDER / report_name
     build_forensic_report(result, report_path)
     return f"/api/v1/report/{result['analysis_id']}"
+
+
+def validate_image_file(image_path):
+    path = Path(image_path)
+    if not path.exists():
+        raise ValueError("Image file does not exist.")
+    if path.stat().st_size <= 0:
+        raise ValueError("Image file is empty.")
+    if path.stat().st_size > app.config["MAX_CONTENT_LENGTH"]:
+        raise ValueError("Image file is larger than the configured upload limit.")
+    frame = cv2.imread(str(path))
+    if frame is None:
+        raise ValueError("Image could not be decoded.")
+    return frame
+
+
+def create_image_artifact(analysis_id, frame, score):
+    filename = f"{analysis_id}_image.jpg"
+    output_path = ARTIFACT_FOLDER / filename
+    save_frame_image(frame, output_path)
+    return [{
+        "rank": 1,
+        "frame_number": 0,
+        "timestamp_seconds": 0.0,
+        "score": score,
+        "image_url": f"/static/analysis/{filename}",
+    }]
+
+
+def analyze_image(image_path, source_type="image_upload", request_id=None, create_report=True):
+    request_id = request_id or getattr(g, "request_id", str(uuid.uuid4()))
+    with traced_span("image_analysis_pipeline", source_type=source_type, request_id=request_id):
+        started = time.perf_counter()
+        original = validate_image_file(image_path)
+        resized = cv2.resize(original, (224, 224))
+        prediction = predict_frame_ensemble(resized)
+        score = prediction["calibrated_score"]
+        elapsed = time.perf_counter() - started
+        analysis_id = uuid.uuid4().hex
+        frame_item = {"frame": resized, "frame_number": 0, "timestamp_seconds": 0.0}
+        result = {
+            "analysis_id": analysis_id,
+            "source_type": source_type,
+            "media_type": "image",
+            "deepfake_score": score,
+            "deepfake_percentage": f"{score * 100:.2f}%",
+            "verdict": verdict_for_score(score),
+            "frame_scores": [{
+                "frame_number": 0,
+                "timestamp_seconds": 0.0,
+                "score": score,
+                "percentage": round(score * 100, 2),
+                "raw_model_scores": [round(item, 4) for item in prediction["raw_scores"]],
+                "model_disagreement": round(prediction["disagreement"], 4),
+                "suspicious": score >= SUSPICIOUS_THRESHOLD,
+            }],
+            "suspicious_markers": [{
+                "frame_number": 0,
+                "timestamp_seconds": 0.0,
+                "score": score,
+                "percentage": round(score * 100, 2),
+                "suspicious": score >= SUSPICIOUS_THRESHOLD,
+            }] if score >= SUSPICIOUS_THRESHOLD else [],
+            "consistency": consistency_for_scores([score]),
+            "metrics": {
+                "processing_time_seconds": round(elapsed, 3),
+                "frames_analyzed": 1,
+                "min_score": score,
+                "max_score": score,
+                "mean_score": score,
+                "std_score": 0.0,
+                "p50_latency_ms": round(elapsed * 1000, 2),
+                "p95_model_disagreement": round(prediction["disagreement"], 4),
+                "ensemble_size": len(MODEL_RUNNERS),
+                "model_name": "FrameTruth Ensemble",
+                "model_version": MODEL_REGISTRY.get("models", [{}])[0].get("version", "1.0.0"),
+                "image_width": int(original.shape[1]),
+                "image_height": int(original.shape[0]),
+            },
+            "artifacts": {
+                "top_suspicious_frames": create_image_artifact(analysis_id, original, score),
+            },
+        }
+        result["artifacts"]["sampled_frames"] = create_sampled_frame_artifacts(analysis_id, [frame_item], [score])
+        result["forensics"] = {
+            "frequency_analysis": frequency_domain_analysis([frame_item]),
+            "optical_flow": {"score": 0.0, "pair_scores": [], "method": "not_applicable_single_image"},
+            "landmarks": facial_landmark_displacement([frame_item]),
+            "audio_visual_sync": {"available": False, "reason": "not_applicable_to_image"},
+        }
+        result["artifacts"]["gradcam"] = maybe_generate_gradcam(result, [frame_item])
+        result["report_url"] = create_pdf_report(result) if create_report else None
+        return result
 
 
 def analyze_video(video_path, source_type="upload", request_id=None):
@@ -503,6 +675,7 @@ def analyze_video(video_path, source_type="upload", request_id=None):
             },
             "artifacts": {
                 "top_suspicious_frames": create_frame_artifacts(analysis_id, frame_items, calibrated_scores),
+                "sampled_frames": create_sampled_frame_artifacts(analysis_id, frame_items, calibrated_scores),
             },
         }
 
@@ -536,21 +709,70 @@ def persist_upload_or_url():
             raise ValueError("Upload a video file or provide a public video URL.")
         if not shutil.which("yt-dlp"):
             raise ValueError("URL analysis needs yt-dlp installed.")
-        temp_path = UPLOAD_FOLDER / f"url_{uuid.uuid4().hex}.mp4"
-        command = [
-            "yt-dlp",
-            "--no-playlist",
-            "--max-filesize",
-            "100M",
-            "--download-sections",
-            f"*0-{MAX_URL_DURATION_SECONDS}",
-            "-f",
-            "mp4/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best",
-            "-o",
-            str(temp_path),
-            url.strip(),
+        temp_stem = UPLOAD_FOLDER / f"url_{uuid.uuid4().hex}"
+        output_template = f"{temp_stem}.%(ext)s"
+        temp_path = temp_stem.with_suffix(".mp4")
+        ffmpeg_available = shutil.which("ffmpeg") is not None
+        section_args = ["--download-sections", f"*0-{MAX_URL_DURATION_SECONDS}"] if ffmpeg_available else []
+        commands = [
+            [
+                "yt-dlp",
+                "--no-playlist",
+                "--max-filesize",
+                "100M",
+                *section_args,
+                "--merge-output-format",
+                "mp4",
+                "-f",
+                "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
+                "-o",
+                output_template,
+                url.strip(),
+            ],
+            [
+                "yt-dlp",
+                "--no-playlist",
+                "--max-filesize",
+                "100M",
+                *section_args,
+                "--merge-output-format",
+                "mp4",
+                "-f",
+                "best",
+                "-o",
+                output_template,
+                url.strip(),
+            ],
         ]
-        subprocess.run(command, check=True, capture_output=True, text=True, timeout=240)
+
+        last_error = None
+        for command in commands:
+            try:
+                subprocess.run(command, check=True, capture_output=True, text=True, timeout=240)
+                break
+            except subprocess.CalledProcessError as exc:
+                last_error = exc
+        else:
+            stderr = (last_error.stderr or last_error.stdout or "").strip() if last_error else ""
+            stderr_tail = stderr.splitlines()[-1] if stderr else "yt-dlp could not download this URL."
+            raise ValueError(f"URL download failed: {stderr_tail}")
+
+        matching_files = sorted(UPLOAD_FOLDER.glob(f"{temp_stem.name}.*"))
+        if not matching_files:
+            raise ValueError("URL download failed: no video file was created.")
+
+        downloaded_path = None
+        for candidate in matching_files:
+            if candidate.suffix.lower() in {".mp4", ".mov", ".mkv", ".webm"}:
+                downloaded_path = candidate
+                break
+        if downloaded_path is None:
+            downloaded_path = matching_files[0]
+
+        if downloaded_path != temp_path:
+            if temp_path.exists():
+                temp_path.unlink()
+            shutil.move(str(downloaded_path), str(temp_path))
         source_type = "url"
 
     validation = validator.validate(temp_path)
@@ -558,6 +780,60 @@ def persist_upload_or_url():
         temp_path.unlink(missing_ok=True)
         raise ValueError(validation.message)
     return temp_path, source_type
+
+
+def allowed_image_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
+
+
+def download_direct_image(url, temp_path):
+    request_obj = Request(url, headers={"User-Agent": "FrameTruth/2.0"})
+    try:
+        with urlopen(request_obj, timeout=60) as response:
+            content_type = response.headers.get("Content-Type", "").lower()
+            if not content_type.startswith("image/"):
+                raise ValueError("The provided URL does not point to an image resource.")
+            with Path(temp_path).open("wb") as handle:
+                shutil.copyfileobj(response, handle)
+    except URLError as exc:
+        raise ValueError(f"Image download failed: {exc.reason}") from exc
+
+
+def persist_image_or_url():
+    source_type = "image_upload"
+    if "image" in request.files and request.files["image"].filename:
+        file = request.files["image"]
+        if not allowed_image_file(file.filename):
+            raise ValueError("Invalid image format. Upload jpg, jpeg, png, or webp.")
+        temp_path = UPLOAD_FOLDER / f"{uuid.uuid4().hex}_{secure_filename(file.filename)}"
+        file.save(temp_path)
+    else:
+        url = request.form.get("url")
+        if not url and request.is_json:
+            payload = request.get_json(silent=True) or {}
+            url = payload.get("url")
+        if not url:
+            raise ValueError("Upload an image file or provide a public image URL.")
+        parsed = urlparse(url.strip())
+        extension = Path(parsed.path).suffix.lower().lstrip(".")
+        if extension and extension not in ALLOWED_IMAGE_EXTENSIONS:
+            raise ValueError("The provided URL does not appear to target a supported image format.")
+        temp_path = UPLOAD_FOLDER / f"image_{uuid.uuid4().hex}.{extension or 'jpg'}"
+        download_direct_image(url.strip(), temp_path)
+        source_type = "image_url"
+
+    validate_image_file(temp_path)
+    return temp_path, source_type
+
+
+def persist_live_frame():
+    frame = request.files.get("frame")
+    if frame is None or not frame.filename:
+        raise ValueError("Live detection needs a frame capture.")
+    temp_path = UPLOAD_FOLDER / f"live_{uuid.uuid4().hex}.jpg"
+    frame.save(temp_path)
+    validate_image_file(temp_path)
+    return temp_path
 
 
 def record_analysis_success(request_id, job_id, user, result):
@@ -595,10 +871,12 @@ def record_analysis_error(request_id, job_id, user, source_type, message):
         )
 
 
-def analytics_snapshot():
+def analytics_snapshot(user_id=None):
+    where_clause = "WHERE user_id = ?" if user_id is not None else ""
+    params = (user_id,) if user_id is not None else ()
     with get_db() as connection:
         summary = connection.execute(
-            """
+            f"""
             SELECT
                 COUNT(*) AS total_requests,
                 SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS total_analyses,
@@ -606,27 +884,37 @@ def analytics_snapshot():
                 AVG(CASE WHEN status = 'success' THEN confidence END) AS avg_confidence,
                 AVG(CASE WHEN status = 'success' THEN processing_time_seconds END) AS avg_processing_time
             FROM analyses
-            """
+            {where_clause}
+            """,
+            params,
         ).fetchone()
         verdicts = connection.execute(
-            """
+            f"""
             SELECT COALESCE(verdict_label, 'Error') AS label, COUNT(*) AS count
-            FROM analyses GROUP BY COALESCE(verdict_label, 'Error') ORDER BY count DESC
-            """
+            FROM analyses
+            {where_clause}
+            GROUP BY COALESCE(verdict_label, 'Error') ORDER BY count DESC
+            """,
+            params,
         ).fetchall()
         recent = connection.execute(
-            """
+            f"""
             SELECT request_id, job_id, source_type, status, verdict_label, confidence,
                    processing_time_seconds, frames_analyzed, report_path, error_message, created_at
-            FROM analyses ORDER BY datetime(created_at) DESC, id DESC LIMIT 10
-            """
+            FROM analyses
+            {where_clause}
+            ORDER BY datetime(created_at) DESC, id DESC LIMIT 10
+            """,
+            params,
         ).fetchall()
         trend = connection.execute(
-            """
+            f"""
             SELECT created_at, confidence, processing_time_seconds
-            FROM analyses WHERE status = 'success'
+            FROM analyses
+            {"WHERE user_id = ? AND status = 'success'" if user_id is not None else "WHERE status = 'success'"}
             ORDER BY datetime(created_at) DESC, id DESC LIMIT 30
-            """
+            """,
+            params,
         ).fetchall()
 
     confidences = [row["confidence"] for row in trend if row["confidence"] is not None]
@@ -750,6 +1038,7 @@ def metrics():
 
 
 @app.route("/api/v1/model/info")
+@require_auth({"analyst", "operator", "admin"})
 def model_info():
     payload = load_model_registry()
     payload["loaded_models"] = len(MODEL_RUNNERS)
@@ -757,12 +1046,13 @@ def model_info():
     return json_response("success", g.request_id, payload)
 
 
+@app.route("/api/v1/analytics")
 @app.route("/api/v1/admin/analytics")
-@require_auth({"operator", "admin"})
+@require_auth({"analyst", "operator", "admin"})
 def admin_analytics():
     user = current_user()
-    record_audit("admin_analytics_view", user)
-    return json_response("success", g.request_id, analytics_snapshot())
+    record_audit("analytics_view", user)
+    return json_response("success", g.request_id, analytics_snapshot(user_id=user["id"]))
 
 
 @app.route("/api/v1/admin/users")
@@ -799,11 +1089,9 @@ def auth_signup():
         return jsonify({"error": "Password must be at least 8 characters."}), 400
     try:
         with get_db() as connection:
-            existing_users = connection.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"]
-            role = "admin" if existing_users == 0 else "analyst"
             cursor = connection.execute(
                 "INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)",
-                (name, email, generate_password_hash(password), role),
+                (name, email, generate_password_hash(password), "analyst"),
             )
         user = current_user_from_db(cursor.lastrowid)
     except sqlite3.IntegrityError:
@@ -885,6 +1173,43 @@ def api_v1_analyze():
         "poll_url": f"/api/v1/status/{job_id}",
         "result_url": f"/api/v1/result/{job_id}",
     }, status_code=202)
+
+
+@app.route("/api/v1/analyze-image", methods=["POST"])
+@require_auth({"analyst", "operator", "admin"})
+def api_v1_analyze_image():
+    user = current_user()
+    try:
+        temp_path, source_type = persist_image_or_url()
+        result = analyze_image(temp_path, source_type=source_type, request_id=g.request_id)
+        result["request_id"] = g.request_id
+        record_analysis_success(g.request_id, None, user, result)
+        record_audit("image_analysis_complete", user, {"verdict": result["verdict"]["label"]})
+        return json_response("success", g.request_id, result)
+    except Exception as exc:
+        record_analysis_error(g.request_id, None, user, "image", str(exc))
+        record_audit("image_analysis_failed", user, {"error": str(exc)})
+        return json_response("error", g.request_id, error=str(exc), status_code=400)
+    finally:
+        if "temp_path" in locals():
+            Path(temp_path).unlink(missing_ok=True)
+
+
+@app.route("/api/v1/analyze-live-frame", methods=["POST"])
+@require_auth({"analyst", "operator", "admin"})
+def api_v1_analyze_live_frame():
+    user = current_user()
+    try:
+        temp_path = persist_live_frame()
+        result = analyze_image(temp_path, source_type="live_stream_frame", request_id=g.request_id, create_report=False)
+        result["request_id"] = g.request_id
+        record_audit("live_frame_analysis", user, {"verdict": result["verdict"]["label"], "score": result["deepfake_percentage"]})
+        return json_response("success", g.request_id, result)
+    except Exception as exc:
+        return json_response("error", g.request_id, error=str(exc), status_code=400)
+    finally:
+        if "temp_path" in locals():
+            Path(temp_path).unlink(missing_ok=True)
 
 
 @app.route("/api/v1/status/<job_id>")

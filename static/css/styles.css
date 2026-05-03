@@ -123,7 +123,7 @@ h2 {
 }
 
 .user-chip {
-    max-width: 180px;
+    max-width: 240px;
     overflow: hidden;
     border: 1px solid var(--line);
     border-radius: 999px;
@@ -205,6 +205,11 @@ h2 {
 .run-button {
     width: 100%;
     margin-top: 12px;
+}
+
+.report-button {
+    width: fit-content;
+    margin-top: 4px;
 }
 
 .workflow-grid,
@@ -524,11 +529,65 @@ h2 {
     background: rgba(0, 0, 0, 0.22);
 }
 
-.report-link {
-    display: inline-flex;
-    align-items: center;
-    margin-top: 12px;
-    text-decoration: none;
+.current-analysis-table {
+    display: grid;
+    gap: 14px;
+}
+
+.current-analysis-grid {
+    margin-top: 0;
+}
+
+.current-analysis-meta {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.current-analysis-meta p,
+.current-analysis-meta small {
+    margin: 0;
+}
+
+.current-analysis-meta p {
+    color: #d8d6e5;
+    margin-bottom: 8px;
+}
+
+.current-analysis-meta small {
+    color: var(--muted);
+}
+
+.current-markers {
+    margin-top: 0;
+}
+
+.live-grid {
+    display: grid;
+    grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr);
+    gap: 16px;
+    align-items: start;
+}
+
+.live-stage,
+.live-results {
+    display: grid;
+    gap: 12px;
+}
+
+.live-video {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.3);
+    object-fit: cover;
+}
+
+.live-actions {
+    display: flex;
+    justify-content: flex-start;
 }
 
 .history-scroll {
@@ -595,6 +654,34 @@ th {
     font-size: 13px;
 }
 
+.auth-mode-switch {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.auth-mode-button {
+    min-height: 38px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.03);
+    color: #d8d6e5;
+}
+
+.auth-mode-button.active {
+    background: rgba(113, 92, 255, 0.18);
+    border-color: rgba(113, 92, 255, 0.45);
+    color: white;
+}
+
+.auth-hint {
+    margin: 12px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
 .auth-modal .link-button {
     margin-top: 14px;
 }
@@ -636,7 +723,8 @@ th {
     .hero-strip,
     .workflow-grid,
     .dashboard-grid,
-    .admin-charts {
+    .admin-charts,
+    .live-grid {
         grid-template-columns: 1fr;
     }
 

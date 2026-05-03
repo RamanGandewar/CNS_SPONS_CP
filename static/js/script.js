@@ -19,6 +19,34 @@ function getAuthHeaders() {
     return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+async function downloadReport(result, showToast) {
+    if (!result?.report_url) {
+        showToast("Report is not available for this analysis.", "error");
+        return;
+    }
+
+    try {
+        const response = await fetch(result.report_url, { headers: getAuthHeaders() });
+        if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.error || "Could not download the report.");
+        }
+
+        const blob = await response.blob();
+        const objectUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = objectUrl;
+        link.download = `frametruth-report-${result.analysis_id || "analysis"}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(objectUrl);
+        showToast("Report download started.", "success");
+    } catch (error) {
+        showToast(error.message, "error");
+    }
+}
+
 function TopNav({ user, onAuthClick, onLogout }) {
     return h("header", { className: "top-nav" },
         h("a", { className: "brand", href: "#" },
@@ -29,7 +57,8 @@ function TopNav({ user, onAuthClick, onLogout }) {
             h("a", { className: "nav-item active", href: "#" }, "Deepfake"),
             h("a", { className: "nav-item", href: "#timeline-panel" }, "Timeline"),
             h("a", { className: "nav-item", href: "#metrics-panel" }, "Metrics"),
-            h("a", { className: "nav-item", href: "#admin-panel" }, "Admin"),
+            h("a", { className: "nav-item", href: "#insights-panel" }, "Insights"),
+            h("a", { className: "nav-item", href: "#live-panel" }, "Live"),
             h("a", { className: "nav-item", href: "#xai-panel" }, "XAI")
         ),
         h("div", { className: "nav-actions" },
@@ -107,6 +136,7 @@ function AuthModal({ mode, setMode, onClose, onAuthed, showToast }) {
                     loading ? "Please wait..." : isSignup ? "Create account" : "Sign in"
                 )
             ),
+            h("p", { className: "auth-hint" }, "Signed-in users can inspect forensic results, media timelines, and platform activity insights."),
             h("button", { className: "link-button", type: "button", onClick: () => setMode(isSignup ? "login" : "signup") },
                 isSignup ? "Already have an account? Sign in" : "New here? Create an account"
             )
@@ -115,6 +145,7 @@ function AuthModal({ mode, setMode, onClose, onAuthed, showToast }) {
 }
 
 function SourcePanel({ user, onResult, showToast, openAuth }) {
+    const [mode, setMode] = useState("video");
     const [file, setFile] = useState(null);
     const [url, setUrl] = useState("");
     const [loading, setLoading] = useState(false);
@@ -150,28 +181,37 @@ function SourcePanel({ user, onResult, showToast, openAuth }) {
             return;
         }
         if (!file && !url.trim()) {
-            showToast("Upload a video or paste a URL first.", "error");
+            showToast(mode === "image" ? "Upload an image or paste an image URL first." : "Upload a video or paste a media URL first.", "error");
             return;
         }
 
         const formData = new FormData();
+        let endpoint = "/api/v1/analyze";
         if (file) {
-            formData.append("video", file);
+            formData.append(mode === "image" ? "image" : "video", file);
         } else {
             formData.append("url", url.trim());
+        }
+        if (mode === "image") {
+            endpoint = "/api/v1/analyze-image";
         }
 
         setLoading(true);
         try {
-            const response = await fetch("/api/v1/analyze", { method: "POST", body: formData, headers: getAuthHeaders() });
+            const response = await fetch(endpoint, { method: "POST", body: formData, headers: getAuthHeaders() });
             const payload = await response.json();
             if (!response.ok || payload.status === "error") {
                 throw new Error(payload.error || "Analysis failed.");
             }
-            showToast(`Job queued: ${payload.data.job_id.slice(0, 8)}`, "success");
-            const result = await pollForResult(payload.data.job_id);
-            onResult(result);
-            showToast(`Analysis complete. Request ${result.request_id.slice(0, 8)}`, "success");
+            if (mode === "image") {
+                onResult(payload.data);
+                showToast(`Image analysis complete. Request ${payload.data.request_id.slice(0, 8)}`, "success");
+            } else {
+                showToast(`Job queued: ${payload.data.job_id.slice(0, 8)}`, "success");
+                const result = await pollForResult(payload.data.job_id);
+                onResult(result);
+                showToast(`Analysis complete. Request ${result.request_id.slice(0, 8)}`, "success");
+            }
         } catch (error) {
             showToast(error.message, "error");
         } finally {
@@ -182,12 +222,16 @@ function SourcePanel({ user, onResult, showToast, openAuth }) {
     return h("form", { className: "panel source-panel", onSubmit: submit },
         h("div", { className: "panel-heading" },
             h("span", { className: "step" }, "1"),
-            h("div", null, h("h2", null, "Source Video"), h("p", null, "Upload a file or paste a public URL."))
+            h("div", null, h("h2", null, "Source Media"), h("p", null, "Analyze uploaded media or public social-media links."))
+        ),
+        h("div", { className: "auth-mode-switch", role: "tablist", "aria-label": "Media mode" },
+            h("button", { className: `auth-mode-button ${mode === "video" ? "active" : ""}`, type: "button", onClick: () => { setMode("video"); setFile(null); setUrl(""); } }, "Video"),
+            h("button", { className: `auth-mode-button ${mode === "image" ? "active" : ""}`, type: "button", onClick: () => { setMode("image"); setFile(null); setUrl(""); } }, "Image")
         ),
         h("label", { className: "drop-zone" },
             h("input", {
                 type: "file",
-                accept: ".mp4,.mov",
+                accept: mode === "image" ? ".jpg,.jpeg,.png,.webp" : ".mp4,.mov",
                 onChange: event => {
                     const nextFile = event.target.files[0] || null;
                     setFile(nextFile);
@@ -195,8 +239,8 @@ function SourcePanel({ user, onResult, showToast, openAuth }) {
                 },
             }),
             h("span", { className: "upload-orb" }, "+"),
-            h("strong", null, file ? file.name : "Drop file here or browse"),
-            h("small", null, "Supported: mp4, mov")
+            h("strong", null, file ? file.name : mode === "image" ? "Drop image here or browse" : "Drop video here or browse"),
+            h("small", null, mode === "image" ? "Supported: jpg, jpeg, png, webp" : "Supported: mp4, mov")
         ),
         h("div", { className: "url-row" },
             h("input", {
@@ -206,17 +250,17 @@ function SourcePanel({ user, onResult, showToast, openAuth }) {
                     setUrl(event.target.value);
                     if (event.target.value.trim()) setFile(null);
                 },
-                placeholder: "https://youtube.com/watch?v=...",
+                placeholder: mode === "image" ? "https://example.com/image.jpg" : "https://youtube.com/watch?v=...",
             }),
             h("button", { className: "ghost-button", type: "button", onClick: () => { setFile(null); setUrl(""); } }, "Clear")
         ),
         h("button", { className: "primary-button run-button", type: "submit", disabled: loading },
-            loading ? "Analyzing..." : "Run analysis"
+            loading ? "Analyzing..." : mode === "image" ? "Run image analysis" : "Run video analysis"
         )
     );
 }
 
-function PreviewPanel({ result }) {
+function PreviewPanel({ result, showToast }) {
     const frames = result?.artifacts?.top_suspicious_frames || [];
     const verdict = result?.verdict;
     return h("section", { className: "panel preview-panel" },
@@ -236,7 +280,13 @@ function PreviewPanel({ result }) {
         h("div", { className: "verdict-card" },
             h("span", { className: `badge ${verdict?.tone || "neutral"}` }, verdict?.label || "Waiting"),
             h("strong", null, result ? `${result.deepfake_percentage} fake probability` : "Deepfake probability will appear here."),
-            h("p", null, verdict?.explanation || "The model analyzes sampled frames and keeps every score for review.")
+            h("p", null, verdict?.explanation || "The model analyzes sampled frames and keeps every score for review."),
+            h("button", {
+                className: "primary-button report-button",
+                type: "button",
+                disabled: !result?.report_url,
+                onClick: () => downloadReport(result, showToast),
+            }, result?.report_url ? "Download report" : "Report unavailable")
         )
     );
 }
@@ -338,7 +388,46 @@ function MetricsPanel({ result }) {
     );
 }
 
-function AdminDashboard({ user, result }) {
+function SummaryPanel({ result }) {
+    const currentSummary = result ? [
+        ["Request", result.request_id ? result.request_id.slice(0, 8) : "--"],
+        ["Source", result.source_type || "--"],
+        ["Verdict", result.verdict?.label || "--"],
+        ["Confidence", result.deepfake_percentage || "--"],
+        ["Frames", result.metrics?.frames_analyzed ?? "--"],
+        ["Suspicious", result.suspicious_markers?.length ?? 0],
+    ] : [];
+    const suspiciousFrames = (result?.suspicious_markers || []).slice(0, 6);
+
+    return h("section", { className: "panel summary-panel", id: "summary-panel" },
+        h("div", { className: "panel-heading compact" },
+            h("span", { className: "step" }, "5"),
+            h("div", null, h("h2", null, "Forensic Summary"), h("p", null, "Latest analysis details for the current user session."))
+        ),
+        result
+            ? [
+                h("div", { className: "metric-grid current-analysis-grid", key: "summary" },
+                    currentSummary.map(([label, value]) => h("div", { className: "metric", key: label }, h("span", null, label), h("strong", null, value)))
+                ),
+                h("div", { className: "current-analysis-meta", key: "meta" },
+                    h("p", null, result.verdict?.explanation || "No verdict explanation available."),
+                    h("small", null, `Consistency: ${result.consistency?.label || "--"} | Std: ${result.consistency ? percent(result.consistency.std) : "--"} | Processing: ${result.metrics ? `${Number(result.metrics.processing_time_seconds).toFixed(2)}s` : "--"}`)
+                ),
+                h("div", { className: "markers current-markers", key: "markers" },
+                    suspiciousFrames.length
+                        ? suspiciousFrames.map(item => h("span", { className: "marker", key: `${item.frame_number}-${item.timestamp_seconds}` },
+                            `Frame ${item.frame_number}`,
+                            h("strong", null, `${item.percentage.toFixed(2)}%`),
+                            h("small", null, seconds(item.timestamp_seconds))
+                        ))
+                        : h("span", { className: "muted" }, "No suspicious frames crossed the threshold in this run.")
+                )
+            ]
+            : h("div", { className: "empty-metrics" }, "Run an analysis to populate this panel with the latest forensic result.")
+    );
+}
+
+function ActivityDashboard({ user }) {
     const [analytics, setAnalytics] = useState(null);
     const [modelInfo, setModelInfo] = useState(null);
     const verdictCanvas = useRef(null);
@@ -348,23 +437,40 @@ function AdminDashboard({ user, result }) {
 
     useEffect(() => {
         if (!user) {
+            verdictChart.current?.destroy();
+            confidenceChart.current?.destroy();
             setAnalytics(null);
             return;
         }
+        verdictChart.current?.destroy();
+        confidenceChart.current?.destroy();
+        setAnalytics(null);
         Promise.all([
-            fetch("/api/v1/admin/analytics", { headers: getAuthHeaders() }),
+            fetch("/api/v1/analytics", { headers: getAuthHeaders() }),
             fetch("/api/v1/model/info", { headers: getAuthHeaders() }),
         ])
             .then(async ([analyticsResponse, modelResponse]) => {
                 const analyticsPayload = await analyticsResponse.json();
                 const modelPayload = await modelResponse.json();
-                if (analyticsResponse.ok && analyticsPayload.status === "success") setAnalytics(analyticsPayload.data);
+                if (analyticsResponse.ok && analyticsPayload.status === "success") {
+                    setAnalytics(analyticsPayload.data);
+                } else if (analyticsResponse.status === 403) {
+                    setAnalytics(null);
+                } else {
+                    setAnalytics(null);
+                }
                 if (modelResponse.ok && modelPayload.status === "success") setModelInfo(modelPayload.data);
+            })
+            .catch(() => {
+                setAnalytics(null);
             });
-    }, [user, result]);
+    }, [user]);
 
     useEffect(() => {
-        if (!analytics || !verdictCanvas.current) return undefined;
+        if (!analytics || !verdictCanvas.current || !analytics.verdict_distribution.length) {
+            verdictChart.current?.destroy();
+            return undefined;
+        }
         verdictChart.current?.destroy();
         verdictChart.current = new Chart(verdictCanvas.current, {
             type: "doughnut",
@@ -378,7 +484,10 @@ function AdminDashboard({ user, result }) {
     }, [analytics]);
 
     useEffect(() => {
-        if (!analytics || !confidenceCanvas.current) return undefined;
+        if (!analytics || !confidenceCanvas.current || !analytics.confidence_over_time.length) {
+            confidenceChart.current?.destroy();
+            return undefined;
+        }
         confidenceChart.current?.destroy();
         confidenceChart.current = new Chart(confidenceCanvas.current, {
             type: "line",
@@ -400,53 +509,65 @@ function AdminDashboard({ user, result }) {
     }, [analytics]);
 
     if (!user) {
-        return h("section", { className: "panel admin-panel", id: "admin-panel" },
+        return h("section", { className: "panel admin-panel", id: "insights-panel" },
             h("div", { className: "panel-heading compact" },
-                h("span", { className: "step" }, "6"),
-                h("div", null, h("h2", null, "Admin Analytics"), h("p", null, "Sign in to inspect operator metrics."))
+                h("span", { className: "step" }, "7"),
+                h("div", null, h("h2", null, "Platform Insights"), h("p", null, "Sign in to review platform activity and recent analysis history."))
             ),
-            h("div", { className: "empty-metrics" }, "Admin analytics require a signed-in session.")
+            h("div", { className: "empty-metrics" }, "Platform insights require a signed-in session.")
         );
     }
 
     const statRows = analytics ? [
-        ["Total videos", analytics.total_analyses],
-        ["Errors", analytics.total_errors],
-        ["Errors last hour", analytics.errors_last_hour],
-        ["Avg confidence", percent(analytics.average_confidence)],
-        ["Avg processing", `${Number(analytics.average_processing_time_seconds).toFixed(2)}s`],
+        ["Your uploads", analytics.total_analyses],
+        ["Your errors", analytics.total_errors],
+        ["Your avg confidence", percent(analytics.average_confidence)],
+        ["Your avg processing", `${Number(analytics.average_processing_time_seconds).toFixed(2)}s`],
         ["Uptime", `${Number(analytics.health.uptime_seconds).toFixed(0)}s`],
         ["Model loaded", analytics.health.models_loaded > 0 ? "Yes" : "No"],
         ["Model version", modelInfo?.models?.[0]?.version || "n/a"],
     ] : [];
 
-    return h("section", { className: "panel admin-panel", id: "admin-panel" },
+    return h("section", { className: "panel admin-panel", id: "insights-panel" },
         h("div", { className: "panel-heading compact" },
-            h("span", { className: "step" }, "6"),
-            h("div", null, h("h2", null, "Admin Analytics"), h("p", null, "Operational health, metrics, and recent analysis history."))
+            h("span", { className: "step" }, "7"),
+            h("div", null, h("h2", null, "Your Insights"), h("p", null, "A live view of the media you have analyzed in this account."))
         ),
         h("div", { className: "metric-grid admin-stats" },
-            statRows.length ? statRows.map(([label, value]) => h("div", { className: "metric", key: label }, h("span", null, label), h("strong", null, value))) : h("div", { className: "empty-metrics" }, "Analytics appear after the first request.")
+            statRows.length
+                ? statRows.map(([label, value]) => h("div", { className: "metric", key: label }, h("span", null, label), h("strong", null, value)))
+                : h("div", { className: "empty-metrics" }, "Analytics appear after the first request.")
         ),
         h("div", { className: "admin-charts" },
-            h("div", { className: "admin-chart" }, h("h3", null, "Verdict distribution"), h("canvas", { ref: verdictCanvas })),
-            h("div", { className: "admin-chart" }, h("h3", null, "Average confidence over time"), h("canvas", { ref: confidenceCanvas }))
+            h("div", { className: "admin-chart" },
+                h("h3", null, "Your verdict distribution"),
+                analytics && analytics.verdict_distribution.length
+                    ? h("canvas", { ref: verdictCanvas })
+                    : h("div", { className: "empty-chart" }, "Your verdict distribution will appear after your first analysis.")
+            ),
+            h("div", { className: "admin-chart" },
+                h("h3", null, "Your confidence over time"),
+                analytics && analytics.confidence_over_time.length
+                    ? h("canvas", { ref: confidenceCanvas })
+                    : h("div", { className: "empty-chart" }, "Your confidence trend will appear after your first analysis.")
+            )
         ),
         h("div", { className: "history-table" },
-            h("h3", null, "Recent analysis history"),
+            h("h3", null, "Your recent analysis history"),
             h("div", { className: "history-scroll" },
-                h("table", null,
-                    h("thead", null, h("tr", null, ["Request", "Status", "Verdict", "Confidence", "Time"].map(label => h("th", { key: label }, label)))),
-                    h("tbody", null, (analytics?.recent_history || []).map(item => h("tr", { key: `${item.request_id}-${item.created_at}` },
-                        h("td", null, item.request_id.slice(0, 8)),
-                        h("td", null, item.status),
-                        h("td", null, item.verdict_label || item.error_message || "Error"),
-                        h("td", null, item.confidence ? percent(item.confidence) : "--"),
-                        h("td", null, item.processing_time_seconds ? `${Number(item.processing_time_seconds).toFixed(2)}s` : "--")
-                    )))
-                )
-            ),
-            result?.report_url ? h("a", { className: "ghost-button report-link", href: result.report_url }, "Open forensic PDF") : null
+                analytics
+                    ? h("table", null,
+                        h("thead", null, h("tr", null, ["Request", "Status", "Verdict", "Confidence", "Time"].map(label => h("th", { key: label }, label)))),
+                        h("tbody", null, (analytics?.recent_history || []).map(item => h("tr", { key: `${item.request_id}-${item.created_at}` },
+                            h("td", null, item.request_id.slice(0, 8)),
+                            h("td", null, item.status),
+                            h("td", null, item.verdict_label || item.error_message || "Error"),
+                            h("td", null, item.confidence ? percent(item.confidence) : "--"),
+                            h("td", null, item.processing_time_seconds ? `${Number(item.processing_time_seconds).toFixed(2)}s` : "--")
+                        )))
+                    )
+                    : h("div", { className: "empty-metrics" }, "Your recent analysis history will appear here.")
+            )
         )
     );
 }
@@ -455,12 +576,132 @@ function XaiPanel({ result }) {
     const gradcam = result?.artifacts?.gradcam;
     return h("section", { className: "panel xai-panel", id: "xai-panel" },
         h("div", { className: "panel-heading compact" },
-            h("span", { className: "step" }, "5"),
+            h("span", { className: "step" }, "6"),
             h("div", null, h("h2", null, "Grad-CAM Heatmap"), h("p", null, "Explainability status for the current model."))
         ),
         h("div", { className: "xai-status" },
             h("strong", null, gradcam?.available ? "Available" : "Unavailable"),
             h("p", null, gradcam?.message || "Grad-CAM will unlock when a Keras .h5/.keras model is available.")
+        )
+    );
+}
+
+function LivePanel({ user, showToast }) {
+    const videoRef = useRef(null);
+    const canvasRef = useRef(null);
+    const [streaming, setStreaming] = useState(false);
+    const [history, setHistory] = useState([]);
+    const [latest, setLatest] = useState(null);
+    const streamHandle = useRef(null);
+    const timerHandle = useRef(null);
+
+    useEffect(() => () => {
+        if (timerHandle.current) window.clearInterval(timerHandle.current);
+        if (streamHandle.current) {
+            streamHandle.current.getTracks().forEach(track => track.stop());
+        }
+    }, []);
+
+    async function captureAndAnalyze() {
+        if (!videoRef.current || !canvasRef.current) return;
+        const canvas = canvasRef.current;
+        const video = videoRef.current;
+        const width = 320;
+        const height = 240;
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext("2d");
+        context.drawImage(video, 0, 0, width, height);
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.9));
+        if (!blob) return;
+        const formData = new FormData();
+        formData.append("frame", blob, "live-frame.jpg");
+        const response = await fetch("/api/v1/analyze-live-frame", { method: "POST", headers: getAuthHeaders(), body: formData });
+        const payload = await response.json();
+        if (!response.ok || payload.status === "error") {
+            throw new Error(payload.error || "Live analysis failed.");
+        }
+        setLatest(payload.data);
+        setHistory(previous => [...previous.slice(-11), {
+            timestamp: new Date().toLocaleTimeString(),
+            score: payload.data.deepfake_score,
+            verdict: payload.data.verdict.label,
+        }]);
+    }
+
+    async function startLive() {
+        if (!user) {
+            showToast("Sign in before starting live detection.", "error");
+            return;
+        }
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            streamHandle.current = stream;
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+                await videoRef.current.play();
+            }
+            setStreaming(true);
+            await captureAndAnalyze();
+            timerHandle.current = window.setInterval(() => {
+                captureAndAnalyze().catch(error => showToast(error.message, "error"));
+            }, 2500);
+        } catch (error) {
+            showToast(error.message || "Camera access failed.", "error");
+        }
+    }
+
+    function stopLive() {
+        if (timerHandle.current) window.clearInterval(timerHandle.current);
+        timerHandle.current = null;
+        if (streamHandle.current) {
+            streamHandle.current.getTracks().forEach(track => track.stop());
+            streamHandle.current = null;
+        }
+        setStreaming(false);
+    }
+
+    return h("section", { className: "panel live-panel", id: "live-panel" },
+        h("div", { className: "panel-heading compact" },
+            h("span", { className: "step" }, "7"),
+            h("div", null, h("h2", null, "Live Stream Detection"), h("p", null, "Capture webcam frames periodically for live deepfake scoring."))
+        ),
+        h("div", { className: "live-grid" },
+            h("div", { className: "live-stage" },
+                h("video", { ref: videoRef, className: "live-video", playsInline: true, muted: true }),
+                h("canvas", { ref: canvasRef, className: "live-canvas", hidden: true }),
+                h("div", { className: "live-actions" },
+                    streaming
+                        ? h("button", { className: "ghost-button", type: "button", onClick: stopLive }, "Stop live scan")
+                        : h("button", { className: "primary-button", type: "button", onClick: startLive }, "Start live scan")
+                )
+            ),
+            h("div", { className: "live-results" },
+                latest
+                    ? [
+                        h("div", { className: "metric-grid", key: "live-metrics" },
+                            [["Verdict", latest.verdict.label], ["Confidence", latest.deepfake_percentage], ["Source", latest.source_type]].map(([label, value]) =>
+                                h("div", { className: "metric", key: label }, h("span", null, label), h("strong", null, value))
+                            )
+                        ),
+                        h("div", { className: "history-table", key: "live-history" },
+                            h("h3", null, "Rolling live history"),
+                            h("div", { className: "history-scroll" },
+                                h("table", null,
+                                    h("thead", null, h("tr", null, ["Time", "Verdict", "Confidence"].map(label => h("th", { key: label }, label)))),
+                                    h("tbody", null, history.slice().reverse().map(item =>
+                                        h("tr", { key: `${item.timestamp}-${item.score}` },
+                                            h("td", null, item.timestamp),
+                                            h("td", null, item.verdict),
+                                            h("td", null, percent(item.score))
+                                        )
+                                    ))
+                                )
+                            )
+                        )
+                    ]
+                    : h("div", { className: "empty-metrics" }, "Start live scan to begin webcam-based frame detection.")
+            )
         )
     );
 }
@@ -496,18 +737,20 @@ function App() {
         h("main", { className: "app-shell" },
             h("section", { className: "hero-strip" },
                 h("div", null, h("p", { className: "eyebrow" }, "Deepfake"), h("h1", null, "Forensic video detection")),
-                h("p", { className: "hero-copy" }, "Frame-level scores, temporal consistency, suspicious timestamps, and model metrics in one React dashboard.")
+                h("p", { className: "hero-copy" }, "Analyze manipulated videos, images, and live webcam frames with shared forensic visibility for every signed-in user.")
             ),
             h("section", { className: "workflow-grid" },
                 h(SourcePanel, { user, onResult: setResult, showToast, openAuth: setAuthMode }),
-                h(PreviewPanel, { result })
+                h(PreviewPanel, { result, showToast })
             ),
             h("section", { className: "dashboard-grid" },
                 h(TimelinePanel, { result }),
                 h(MetricsPanel, { result }),
-                h(AdminDashboard, { user, result }),
+                h(SummaryPanel, { result }),
                 h(XaiPanel, { result })
-            )
+            ),
+            h("section", { className: "dashboard-grid admin-grid" }, h(ActivityDashboard, { user })),
+            h("section", { className: "dashboard-grid live-grid-wrap" }, h(LivePanel, { user, showToast }))
         ),
         authMode ? h(AuthModal, { mode: authMode, setMode: setAuthMode, onClose: () => setAuthMode(null), onAuthed: setUser, showToast }) : null,
         h(Toast, { toast })

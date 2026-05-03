@@ -1,8 +1,11 @@
 import json
 import logging
 import os
+import re
 import sys
 from datetime import datetime, timezone
+
+ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 
 
 class JsonLogFormatter(logging.Formatter):
@@ -13,10 +16,24 @@ class JsonLogFormatter(logging.Formatter):
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
-            "message": record.getMessage(),
+            "message": ANSI_ESCAPE_RE.sub("", record.getMessage()),
         }
 
-        for field in ("request_id", "job_id", "user_id", "duration_ms", "verdict", "event", "role"):
+        for field in (
+            "request_id",
+            "job_id",
+            "user_id",
+            "duration_ms",
+            "verdict",
+            "event",
+            "role",
+            "method",
+            "path",
+            "status_code",
+            "ip",
+            "query_string",
+            "content_length",
+        ):
             value = getattr(record, field, None)
             if value is not None:
                 payload[field] = value
@@ -37,6 +54,7 @@ def configure_logging():
     root_logger.handlers.clear()
     root_logger.addHandler(handler)
     root_logger.setLevel(level)
+    logging.getLogger("werkzeug").setLevel(logging.WARNING)
 
 
 def log_event(logger, level, message, **fields):

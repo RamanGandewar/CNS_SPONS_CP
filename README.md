@@ -61,7 +61,7 @@ The application uses an ensemble of bundled TensorFlow Lite models and augments 
 | Observability | `/metrics`, `/health`, JSON logs, request IDs, analytics history, Grafana provisioning |
 | Input validation | File size, duration, readable-frame, and MP4/MOV signature checks before inference |
 | URL ingestion | Public video URL ingestion through `yt-dlp`, subject to duration limits |
-| Exportable reports | Generates per-analysis PDF reports containing verdicts, charts, and suspicious frames |
+| Exportable reports | Generates per-analysis PDF reports with verdicts, charts, top suspicious frames, and a final review of every sampled frame with fake-confidence percentages |
 | Secondary forensics | Frequency-domain score, optical-flow score, landmark displacement, and audio-sync proxy |
 
 ## Quick Start
@@ -203,12 +203,13 @@ Returns the completed forensic payload, including:
 - timing and frame-count metrics
 - forensic secondary signals
 - top suspicious frame artifacts
+- all sampled frame artifacts with per-frame fake-confidence percentages
 - Grad-CAM status
 - PDF report URL
 
 `GET /api/v1/report/<analysis_id>`
 
-Downloads the generated PDF report.
+Downloads the generated PDF report. For video analysis, the report ends with the sampled-frame review, which normally contains 20 frames when `MAX_FRAMES=20`, along with each frame's confidence level and the final real/deepfake verdict.
 
 ### Operations And Admin
 
@@ -408,7 +409,7 @@ Deepfake-video-detection-main/
 
 - Uploaded videos are deleted after processing completes.
 - Frame previews are stored in `static/analysis/`.
-- PDF reports are stored in `static/reports/`.
+- PDF reports are stored in `static/reports/` and include the final sampled-frame confidence review.
 - User and analysis history are stored in `data/deepfake_detector.sqlite3`.
 - The frontend currently uses CDN-hosted React and Chart.js, but does not rely on Babel at runtime.
 - Celery and Redis integration are implemented as production hooks; local execution falls back to a thread-based job runner unless Celery is explicitly enabled.
